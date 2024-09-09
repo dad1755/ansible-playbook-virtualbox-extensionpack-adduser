@@ -1,0 +1,72 @@
+---
+- name: Install VirtualBox, Extension Pack, and Add User to vboxusers
+  hosts: localhost
+  become: yes
+  gather_facts: yes
+  tasks:
+    - name: Add Oracle public key
+      ansible.builtin.apt_key:
+        url: https://www.virtualbox.org/download/oracle_vbox_2016.asc
+        state: present
+
+    - name: Add VirtualBox APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/oracle-virtualbox-2016.gpg] http://download.virtualbox.org/virtualbox/debian {{ ansible_lsb.codename }} contrib"
+        filename: virtualbox
+        state: present
+
+    - name: Install VirtualBox 7.0
+      apt:
+        name: virtualbox-7.0
+        state: present
+        force: yes
+
+    - name: Verify VirtualBox installation
+      command: vboxmanage --version
+      register: vbox_version
+
+    - name: Display VirtualBox version
+      debug:
+        msg: "VirtualBox version installed: {{ vbox_version.stdout }}"
+
+    - name: Download VirtualBox Extension Pack
+      get_url:
+        url: https://download.virtualbox.org/virtualbox/7.0.14/Oracle_VM_VirtualBox_Extension_Pack-7.0.14.vbox-extpack
+        dest: /tmp/Oracle_VM_VirtualBox_Extension_Pack-7.0.14.vbox-extpack
+
+    - name: Check if Extension Pack is already installed
+      command: VBoxManage list extpacks
+      register: extpack_list
+      changed_when: false
+
+    - name: Check if extension pack is installed
+      debug:
+        msg: "{{ extpack_list.stdout }}"
+
+    - name: Install VirtualBox Extension Pack with acceptance
+      expect:
+        command: VBoxManage extpack install /tmp/Oracle_VM_VirtualBox_Extension_Pack-7.0.14.vbox-extpack --accept-license=33d7284dc4a0ece381196fda3cfe2ed0e1e8e7ed7f27b9a9ebc4ee22e24bd23c
+        responses:
+          'Do you agree to these license terms and conditions (y/n)?': 'y'
+      register: extpack_install
+      failed_when: extpack_install.rc != 0 and 'Successfully installed' not in extpack_install.stdout
+      when: "'Oracle VM VirtualBox Extension Pack' not in extpack_list.stdout"
+
+    - name: Display Extension Pack installation result
+      debug:
+        msg: "Extension Pack installation result: {{ extpack_install.stdout | default('Extension Pack already installed') }}"
+
+    # Adding the current user to the vboxusers group
+    - name: Get the current username
+      command: whoami
+      register: current_user
+
+    - name: Add the current user to the vboxusers group
+      user:
+        name: "{{ current_user.stdout }}"
+        groups: vboxusers
+        append: yes
+
+    - name: Reminder to restart the host
+      debug:
+        msg: "Reminder: You need to restart the host for the changes to take effect."
